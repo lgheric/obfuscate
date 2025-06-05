@@ -230,7 +230,6 @@ if ($argc < 3) {
     exit(1);
 }
 
-$traverser = new PhpParser\NodeTraverser();
 
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
