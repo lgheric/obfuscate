@@ -39,7 +39,7 @@
       "$current_user"
     ],
     "globals":[
-      //PHP 系统超全局
+
       "GLOBALS",
       "_SERVER",
       "_GET",
@@ -50,7 +50,7 @@
       "_REQUEST",
       "_ENV",
 
-      // WordPress 常用字段
+
       "post_type",
       "query",
       "columns",
@@ -62,9 +62,9 @@
       "code",
       "token",
 
-      // 保留 PHP 关键字
+
       "this"
     ]
 
-}
+  }
 }

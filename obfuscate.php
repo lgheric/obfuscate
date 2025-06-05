@@ -29,8 +29,7 @@ function loadConfig(string $path): array {
 
     $json = file_get_contents($path);
     $custom = json_decode($json, true);
-    //echo var_export($custom,true);
-    //echo '$custom["classes"]:'.var_export($custom['whitelist']['classes'],true);
+    //echo '$custom='.var_export($custom,true).PHP_EOL;
 
     return [
         'functions' => array_merge(WP_FUNCTIONS, $custom['whitelist']['functions'] ?? []),
@@ -109,6 +108,10 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         // 类名混淆
         if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
+            // ✅ 添加日志输出
+            echo "检查类名: $name\n";
+            echo "白名单类列表: " . implode(', ', $this->config['classes']) . "\n";
+
             if (!in_array($name, $this->config['classes'], true)) {
                 if (!isset($this->classMap[$name])) {
                     $this->classMap[$name] = $this->generateName('c', $this->classCounter++);
@@ -234,5 +237,5 @@ if ($argc < 3) {
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
 $config = loadConfig(__DIR__ . '/config.json');
-//echo var_export($config,true);
+echo var_export($config,true);
 obfuscateDirectory($source, $target, $config);
