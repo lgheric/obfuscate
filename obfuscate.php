@@ -54,8 +54,8 @@ function colorize($text, $color = 'green') {
 }
 
 class WpFriendlyObfuscator extends NodeVisitorAbstract {
-    private array $varMap = [], $funcMap = [], $classMap = [];
-    private int $varCounter = 0, $funcCounter = 0, $classCounter = 0;
+    private array $varMap = [], $funcMap = [], $classMap = [], $methodMap = [];
+    private int $varCounter = 0, $funcCounter = 0, $classCounter = 0, $methodCounter = 0;
     private array $config;
 
     public function __construct(array $config) {
@@ -109,9 +109,6 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         // 类名混淆
         if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
-            // ✅ 添加日志输出
-            //echo "检查类名: $name\n";
-            //echo "白名单类列表: " . implode(', ', $this->config['classes']) . "\n";
             if (!in_array($name, $this->config['classes'], true)) {
                 if (!isset($this->classMap[$name])) {
                     $this->classMap[$name] = $this->generateName('c', $this->classCounter++);
@@ -125,6 +122,33 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             $name = $node->class->toString();
             if (isset($this->classMap[$name])) {
                 $node->class = new Node\Name($this->classMap[$name]);
+            }
+        }
+
+        // 类方法名混淆 - 方法定义
+        if ($node instanceof Node\Stmt\ClassMethod) {
+            $methodName = $node->name->name;
+            if (!in_array($methodName, $this->config['methods'] ?? [], true)) {
+                if (!isset($this->methodMap[$methodName])) {
+                    $this->methodMap[$methodName] = $this->generateName('m', $this->methodCounter++);
+                }
+                $node->name->name = $this->methodMap[$methodName];
+            }
+        }
+
+        // 类方法调用混淆 - 对象调用
+        if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
+            $methodName = $node->name->name;
+            if (isset($this->methodMap[$methodName])) {
+                $node->name->name = $this->methodMap[$methodName];
+            }
+        }
+
+        // 类方法调用混淆 - 静态调用
+        if ($node instanceof Node\Expr\StaticCall && $node->name instanceof Node\Identifier) {
+            $methodName = $node->name->name;
+            if (isset($this->methodMap[$methodName])) {
+                $node->name->name = $this->methodMap[$methodName];
             }
         }
     }
