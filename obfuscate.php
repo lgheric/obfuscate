@@ -109,8 +109,8 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
             // ✅ 添加日志输出
-            echo "检查类名: $name\n";
-            echo "白名单类列表: " . implode(', ', $this->config['classes']) . "\n";
+            //echo "检查类名: $name\n";
+            //echo "白名单类列表: " . implode(', ', $this->config['classes']) . "\n";
 
             if (!in_array($name, $this->config['classes'], true)) {
                 if (!isset($this->classMap[$name])) {
@@ -237,5 +237,5 @@ if ($argc < 3) {
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
 $config = loadConfig(__DIR__ . '/config.json');
-echo var_export($config,true);
+//echo var_export($config,true);
 obfuscateDirectory($source, $target, $config);
