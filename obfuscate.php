@@ -39,46 +39,64 @@ function loadConfig(string $path): array {
     ];
 }
 
-class WpFriendlyObfuscator extends NodeVisitorAbstract
-{
-    private array $varMap = [];
-    private array $funcMap = [];
-    private array $classMap = [];
-    private int $varCounter = 0;
-    private int $funcCounter = 0;
-    private int $classCounter = 0;
+function shouldExcludeFile(string $fileName, array $patterns): bool {
+    foreach ($patterns as $pattern) {
+        if (fnmatch($pattern, basename($fileName))) return true;
+    }
+    return false;
+}
+
+function colorize($text, $color = 'green') {
+    $colors = ['red' => '0;31', 'green' => '0;32', 'yellow' => '1;33', 'blue' => '0;34'];
+    return "\033[" . ($colors[$color] ?? '0') . "m$text\033[0m";
+}
+
+class WpFriendlyObfuscator extends NodeVisitorAbstract {
+    private array $varMap = [], $funcMap = [], $classMap = [];
+    private int $varCounter = 0, $funcCounter = 0, $classCounter = 0;
     private array $config;
 
-    public function __construct(array $config = [])
-    {
+    public function __construct(array $config) {
         $this->config = $config;
     }
 
-    public function enterNode(Node $node)
-    {
-        // 混淆变量
+    private function generateName(string $prefix, int $counter): string {
+        return "__{$prefix}" . base_convert($counter, 10, 36);
+    }
+
+    public function enterNode(Node $node) {
+        // 变量名混淆
         if ($node instanceof Node\Expr\Variable && is_string($node->name)) {
-            $name = $node->name;
-            if (!in_array($name, $this->config['ignore_vars'] ?? [])) {
+            if (in_array($node->name, $this->config['globals'], true)) return;
+            if (!isset($this->varMap[$node->name])) {
+                $this->varMap[$node->name] = $this->generateName('v', $this->varCounter++);
+            }
+            $node->name = $this->varMap[$node->name];
+        }
+
+        // 函数参数混淆
+        if ($node instanceof Node\Param && $node->var instanceof Node\Expr\Variable) {
+            $name = $node->var->name;
+            if (is_string($name) && !in_array($name, $this->config['globals'], true)) {
                 if (!isset($this->varMap[$name])) {
-                    $this->varMap[$name] = '__v' . $this->varCounter++;
+                    $this->varMap[$name] = $this->generateName('a', $this->varCounter++);
                 }
-                $node->name = $this->varMap[$name];
+                $node->var->name = $this->varMap[$name];
             }
         }
 
-        // 混淆函数声明
+        // 函数定义混淆
         if ($node instanceof Node\Stmt\Function_) {
             $name = $node->name->name;
-            if (!in_array($name, $this->config['ignore_functions'] ?? [])) {
+            if (!in_array($name, $this->config['functions'], true)) {
                 if (!isset($this->funcMap[$name])) {
-                    $this->funcMap[$name] = '__f' . $this->funcCounter++;
+                    $this->funcMap[$name] = $this->generateName('f', $this->funcCounter++);
                 }
                 $node->name->name = $this->funcMap[$name];
             }
         }
 
-        // 混淆函数调用
+        // 函数调用混淆
         if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name) {
             $name = $node->name->toString();
             if (isset($this->funcMap[$name])) {
@@ -86,119 +104,64 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract
             }
         }
 
-        // 混淆类名
-        if ($node instanceof Node\Stmt\Class_ && $node->name) {
+        // 类名混淆
+        if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
-            if (!in_array($name, $this->config['ignore_classes'] ?? [])) {
+            if (!in_array($name, $this->config['classes'], true)) {
                 if (!isset($this->classMap[$name])) {
-                    $this->classMap[$name] = '__c' . $this->classCounter++;
+                    $this->classMap[$name] = $this->generateName('c', $this->classCounter++);
                 }
                 $node->name->name = $this->classMap[$name];
             }
         }
 
-        // 混淆类使用
-        if (
-            $node instanceof Node\Expr\New_
-            || $node instanceof Node\Expr\StaticCall
-            || $node instanceof Node\Expr\ClassConstFetch
-        ) {
-            if ($node->class instanceof Node\Name) {
-                $name = $node->class->toString();
-                if (isset($this->classMap[$name])) {
-                    $node->class = new Node\Name($this->classMap[$name]);
-                }
+        // 类实例化使用混淆类名
+        if ($node instanceof Node\Expr\New_ && $node->class instanceof Node\Name) {
+            $name = $node->class->toString();
+            if (isset($this->classMap[$name])) {
+                $node->class = new Node\Name($this->classMap[$name]);
             }
         }
+    }
+}
 
-        // 混淆方法调用
-        if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
-            $name = $node->name->name;
-            if (!isset($this->funcMap[$name])) {
-                $this->funcMap[$name] = '__f' . $this->funcCounter++;
-            }
-            $node->name->name = $this->funcMap[$name];
-        }
+function obfuscateFile(string $filePath, array $config): ?string {
+    $code = file_get_contents($filePath);
+    $parser = (new ParserFactory)->createForNewestSupportedVersion();
+    $traverser = new NodeTraverser();
+    $traverser->addVisitor(new WpFriendlyObfuscator($config));
 
-        // 混淆类方法定义
-        if ($node instanceof Node\Stmt\ClassMethod) {
-            $name = $node->name->name;
-            if (!in_array($name, $this->config['ignore_functions'] ?? [])) {
-                if (!isset($this->funcMap[$name])) {
-                    $this->funcMap[$name] = '__f' . $this->funcCounter++;
-                }
-                $node->name->name = $this->funcMap[$name];
-            }
-        }
-
+    try {
+        $ast = $parser->parse($code);
+        $ast = $traverser->traverse($ast);
+        $prettyPrinter = new PrettyPrinter\Standard();
+        return $prettyPrinter->prettyPrintFile($ast);
+    } catch (Error $e) {
+        echo colorize("[Error] $filePath: " . $e->getMessage(), 'red') . "\n";
         return null;
     }
-
-    public function getMappings(): array
-    {
-        return [
-            'variables' => $this->varMap,
-            'functions' => $this->funcMap,
-            'classes' => $this->classMap,
-        ];
-    }
 }
 
-function colorize(string $text, string $color): string
-{
-    $colors = [
-        'red' => '0;31',
-        'green' => '0;32',
-        'blue' => '0;34',
-        'yellow' => '1;33',
-        'cyan' => '0;36',
-    ];
-    $code = $colors[$color] ?? '0';
-    return "\033[" . $code . "m$text\033[0m";
-}
+function obfuscateDirectory(string $inputDir, string $outputDir, array $config): void {
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($inputDir));
 
-function obfuscateDirectory(string $inputDir, string $outputDir, array $config = []): void
-{
-    $parser = (new ParserFactory)->createForNewestSupportedVersion();
-    $prettyPrinter = new PrettyPrinter\Standard();
-    $visitor = new WpFriendlyObfuscator($config);
-    $traverser = new NodeTraverser();
-    $traverser->addVisitor($visitor);
+    foreach ($files as $file) {
+        if ($file->isFile() && $file->getExtension() === 'php' && !shouldExcludeFile($file->getFilename(), $config['exclude_patterns'])) {
+            $inputPath = $file->getRealPath();
+            $relativePath = substr($inputPath, strlen($inputDir));
+            $outputPath = $outputDir . $relativePath;
 
-    if (!is_dir($outputDir)) {
-        mkdir($outputDir, 0777, true);
-    }
+            if (!is_dir(dirname($outputPath))) {
+                mkdir(dirname($outputPath), 0777, true);
+            }
 
-    $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($inputDir));
-
-    foreach ($rii as $file) {
-        if (!$file->isFile() || $file->getExtension() !== 'php') {
-            continue;
-        }
-
-        $relativePath = str_replace($inputDir, '', $file->getPathname());
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . $relativePath;
-        $outputFileDir = dirname($outputPath);
-
-        if (!is_dir($outputFileDir)) {
-            mkdir($outputFileDir, 0777, true);
-        }
-
-        try {
-            $code = file_get_contents($file->getPathname());
-            $ast = $parser->parse($code);
-            $ast = $traverser->traverse($ast);
-            $obfuscatedCode = $prettyPrinter->prettyPrintFile($ast);
-            file_put_contents($outputPath, $obfuscatedCode);
-            echo colorize("✓ Obfuscated: $relativePath", 'green') . "\n";
-        } catch (Throwable $e) {
-            echo colorize("✗ Failed to parse: $relativePath\n  " . $e->getMessage(), 'red') . "\n";
+            $obfuscatedCode = obfuscateFile($inputPath, $config);
+            if ($obfuscatedCode !== null) {
+                file_put_contents($outputPath, $obfuscatedCode);
+                echo colorize("✔ Obfuscated: $relativePath", 'green') . "\n";
+            }
         }
     }
-
-    // 保存映射文件
-    file_put_contents($outputDir . '/mappings.json', json_encode($visitor->getMappings(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-    echo colorize("✓ Saved mappings to mappings.json", 'blue') . "\n";
 }
 
 // CLI 启动
@@ -212,4 +175,3 @@ $target = rtrim($argv[2], '/\\');
 $config = loadConfig(__DIR__ . '/config.json');
 
 obfuscateDirectory($source, $target, $config);
-
