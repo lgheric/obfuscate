@@ -1,0 +1,35 @@
+{
+  "whitelist": {
+    "functions": [
+      "add_action",
+      "add_filter",
+      "apply_filters",
+      "do_action",
+      "register_activation_hook",
+      "register_deactivation_hook",
+      "__",
+      "_e",
+      "esc_html",
+      "esc_attr",
+      "wp_nonce_field",
+      "wp_verify_nonce"
+    ],
+    "classes": [
+      "WP_Query",
+      "WP_Widget",
+      "WP_REST_Controller",
+      "WP_Error"
+    ],
+    "constants": [
+      "ABSPATH",
+      "PLUGIN_VERSION",
+      "WPINC"
+    ],
+    "variables": [
+      "$wpdb",
+      "$post",
+      "$user_ID",
+      "$current_user"
+    ]
+  }
+}
