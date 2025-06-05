@@ -117,7 +117,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类实例化使用混淆类名
+        // 类实例化混淆
         if ($node instanceof Node\Expr\New_ && $node->class instanceof Node\Name) {
             $name = $node->class->toString();
             if (isset($this->classMap[$name])) {
@@ -125,7 +125,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类方法名混淆 - 方法定义
+        // 类方法定义混淆
         if ($node instanceof Node\Stmt\ClassMethod) {
             $methodName = $node->name->name;
             if (!in_array($methodName, $this->config['methods'] ?? [], true)) {
@@ -136,7 +136,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类方法调用混淆 - 对象调用
+        // 类方法调用混淆 - 对象方式
         if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
             $methodName = $node->name->name;
             if (isset($this->methodMap[$methodName])) {
@@ -144,7 +144,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类方法调用混淆 - 静态调用
+        // 类方法调用混淆 - 静态方式
         if ($node instanceof Node\Expr\StaticCall && $node->name instanceof Node\Identifier) {
             $methodName = $node->name->name;
             if (isset($this->methodMap[$methodName])) {
@@ -152,13 +152,25 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
     }
+
+    public function saveMapToFile(string $filePath): void {
+        $map = [
+            'variables' => $this->varMap,
+            'functions' => $this->funcMap,
+            'classes'   => $this->classMap,
+            'methods'   => $this->methodMap,
+        ];
+
+        file_put_contents($filePath, json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
 }
 
-function obfuscateFile(string $filePath, array $config): ?string {
+
+function obfuscateFile(string $filePath, WpFriendlyObfuscator $obfuscator): ?string {
     $code = file_get_contents($filePath);
     $parser = (new ParserFactory)->createForNewestSupportedVersion();
     $traverser = new NodeTraverser();
-    $traverser->addVisitor(new WpFriendlyObfuscator($config));
+    $traverser->addVisitor($obfuscator);
 
     try {
         $ast = $parser->parse($code);
@@ -171,10 +183,14 @@ function obfuscateFile(string $filePath, array $config): ?string {
     }
 }
 
+
 function obfuscateDirectory(string $inputDir, string $outputDir, array $config): void {
     $inputDir = rtrim(realpath($inputDir), DIRECTORY_SEPARATOR);
     $outputDir = rtrim($outputDir, DIRECTORY_SEPARATOR);
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($inputDir));
+
+    // ✅ 创建统一的 Obfuscator 实例
+    $obfuscator = new WpFriendlyObfuscator($config);
 
     foreach ($files as $file) {
         if (
@@ -184,23 +200,28 @@ function obfuscateDirectory(string $inputDir, string $outputDir, array $config):
         ) {
             $inputPath = $file->getRealPath();
 
-            // ✅ 关键：计算相对于 $inputDir 的路径
+            // 计算相对路径
             $relativePath = substr($inputPath, strlen($inputDir) + 1);
 
-            // ✅ 输出路径
+            // 生成输出路径
             $outputPath = $outputDir . DIRECTORY_SEPARATOR . $relativePath;
 
+            // 确保目录存在
             if (!is_dir(dirname($outputPath))) {
                 mkdir(dirname($outputPath), 0777, true);
             }
 
-            $obfuscatedCode = obfuscateFile($inputPath, $config);
+            // 使用统一的 obfuscator 实例
+            $obfuscatedCode = obfuscateFile($inputPath, $obfuscator);
             if ($obfuscatedCode !== null) {
                 file_put_contents($outputPath, $obfuscatedCode);
                 echo colorize("✔ Obfuscated: $relativePath", 'green') . "\n";
             }
         }
     }
+
+    // ✅ 所有处理完后统一保存映射文件
+    $obfuscator->saveMapToFile($outputDir . DIRECTORY_SEPARATOR . 'obfuscation-map.json');
 }
 
 // CLI 启动
@@ -208,6 +229,8 @@ if ($argc < 3) {
     echo "Usage: php obfuscate.php <source_dir> <target_dir>\n";
     exit(1);
 }
+
+$traverser = new PhpParser\NodeTraverser();
 
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');

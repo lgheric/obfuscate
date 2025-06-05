@@ -24,7 +24,7 @@
       "Export",
       "RestApi",
       "Sort",
-      "Preloader",
+      "ProLoader",
       "PurchaseCodeManager"
     ],
     "constants": [
@@ -37,6 +37,34 @@
       "$post",
       "$user_ID",
       "$current_user"
+    ],
+    "globals":[
+      //PHP 系统超全局
+      "GLOBALS",
+      "_SERVER",
+      "_GET",
+      "_POST",
+      "_FILES",
+      "_COOKIE",
+      "_SESSION",
+      "_REQUEST",
+      "_ENV",
+
+      // WordPress 常用字段
+      "post_type",
+      "query",
+      "columns",
+      "request",
+      "response",
+      "response_code",
+      "response_data",
+      "body",
+      "code",
+      "token",
+
+      // 保留 PHP 关键字
+      "this"
     ]
-  }
+
+}
 }
