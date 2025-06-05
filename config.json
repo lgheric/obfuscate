@@ -18,7 +18,14 @@
       "WP_Query",
       "WP_Widget",
       "WP_REST_Controller",
-      "WP_Error"
+      "WP_Error",
+      "Cleaner",
+      "Core",
+      "Export",
+      "RestApi",
+      "Sort",
+      "Preloader",
+      "PurchaseCodeManager"
     ],
     "constants": [
       "ABSPATH",

@@ -29,13 +29,15 @@ function loadConfig(string $path): array {
 
     $json = file_get_contents($path);
     $custom = json_decode($json, true);
+    //echo var_export($custom,true);
+    //echo '$custom["classes"]:'.var_export($custom['whitelist']['classes'],true);
 
     return [
-        'functions' => array_merge(WP_FUNCTIONS, $custom['functions'] ?? []),
-        'classes' => array_merge(WP_CLASSES, $custom['classes'] ?? []),
-        'constants' => array_merge(WP_CONSTANTS, $custom['constants'] ?? []),
-        'globals' => array_merge(WP_GLOBAL_VARS, $custom['globals'] ?? []),
-        'exclude_patterns' => $custom['exclude_patterns'] ?? [],
+        'functions' => array_merge(WP_FUNCTIONS, $custom['whitelist']['functions'] ?? []),
+        'classes' => array_merge(WP_CLASSES, $custom['whitelist']['classes'] ?? []),
+        'constants' => array_merge(WP_CONSTANTS, $custom['whitelist']['constants'] ?? []),
+        'globals' => array_merge(WP_GLOBAL_VARS, $custom['whitelist']['globals'] ?? []),
+        'exclude_patterns' => $custom['whitelist']['exclude_patterns'] ?? [],
     ];
 }
 
@@ -107,6 +109,9 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         // 类名混淆
         if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
+            // ✅ 添加日志输出
+            //echo "检查类名: $name\n";
+            //echo "白名单类列表: " . implode(', ', $this->config['classes']) . "\n";
             if (!in_array($name, $this->config['classes'], true)) {
                 if (!isset($this->classMap[$name])) {
                     $this->classMap[$name] = $this->generateName('c', $this->classCounter++);
@@ -143,13 +148,23 @@ function obfuscateFile(string $filePath, array $config): ?string {
 }
 
 function obfuscateDirectory(string $inputDir, string $outputDir, array $config): void {
+    $inputDir = rtrim(realpath($inputDir), DIRECTORY_SEPARATOR);
+    $outputDir = rtrim($outputDir, DIRECTORY_SEPARATOR);
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($inputDir));
 
     foreach ($files as $file) {
-        if ($file->isFile() && $file->getExtension() === 'php' && !shouldExcludeFile($file->getFilename(), $config['exclude_patterns'])) {
+        if (
+            $file->isFile() &&
+            $file->getExtension() === 'php' &&
+            !shouldExcludeFile($file->getFilename(), $config['exclude_patterns'])
+        ) {
             $inputPath = $file->getRealPath();
-            $relativePath = substr($inputPath, strlen($inputDir));
-            $outputPath = $outputDir . $relativePath;
+
+            // ✅ 关键：计算相对于 $inputDir 的路径
+            $relativePath = substr($inputPath, strlen($inputDir) + 1);
+
+            // ✅ 输出路径
+            $outputPath = $outputDir . DIRECTORY_SEPARATOR . $relativePath;
 
             if (!is_dir(dirname($outputPath))) {
                 mkdir(dirname($outputPath), 0777, true);
@@ -173,5 +188,5 @@ if ($argc < 3) {
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
 $config = loadConfig(__DIR__ . '/config.json');
-
+//echo var_export($config,true);
 obfuscateDirectory($source, $target, $config);
