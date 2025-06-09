@@ -1,4 +1,19 @@
 <?php
+/**
+ *
+ *  此混淆脚本可以通用的原因：
+ *
+ * 脚本本身无插件耦合：
+ * 你的混淆器 WpFriendlyObfuscator 并没有绑定任何特定插件名或结构，使用的是基于 AST（抽象语法树）的方式处理变量、函数、类和方法，非常灵活。
+ * 使用 config.json 灵活配置：
+ * 白名单项通过配置文件管理（如 functions、classes、globals 等），只需根据每个插件的实际情况调整即可，无需改动主脚本。
+ * 混淆结果映射保存：
+ * 每次混淆都会保存 obfuscation-map.json，便于调试或反查混淆关系，对多个项目开发来说是良好实践。
+ * 排除特定文件的机制存在：
+ * 使用 exclude_patterns 支持按文件名/模式排除不应混淆的文件，如 index.php, loader.php，适合插件中某些必须公开的入口文件。
+ *
+ *
+ * */
 error_reporting(E_ALL);
 ini_set('display_errors','on');
 
@@ -11,35 +26,40 @@ use PhpParser\NodeVisitorAbstract;
 use PhpParser\ParserFactory;
 use PhpParser\PrettyPrinter;
 
-// 默认白名单配置
-const WP_FUNCTIONS = ['add_action', 'add_filter', 'do_action', 'apply_filters'];
-const WP_CLASSES = ['WP_Query', 'WP_User'];
-const WP_CONSTANTS = ['ABSPATH'];
-const WP_GLOBAL_VARS = ['wpdb', 'post'];
+// 默认白名单配置(都是wordpress特有的)
+const WP_FUNCTIONS = [];
+const WP_CLASSES = [];
+const WP_CONSTANTS = [];
+const WP_GLOBAL_VARS = [];
 
-// 加载用户配置
+// 加载自定义配置（如白名单）
 function loadConfig(string $path): array {
-    if (!file_exists($path)) return [
-        'functions' => WP_FUNCTIONS,
-        'classes' => WP_CLASSES,
-        'constants' => WP_CONSTANTS,
-        'globals' => WP_GLOBAL_VARS,
-        'exclude_patterns' => [],
-    ];
+
+    if (!file_exists($path)) {
+        throw new \Exception("Config file not found: $path");
+    }
 
     $json = file_get_contents($path);
     $custom = json_decode($json, true);
-    //echo '$custom='.var_export($custom,true).PHP_EOL;
+
+    if (!is_array($custom) || !isset($custom['whitelist'])) {
+        throw new \Exception("Invalid config structure in $path");
+    }
+
+    $whitelist = $custom['whitelist'];
 
     return [
-        'functions' => array_merge(WP_FUNCTIONS, $custom['whitelist']['functions'] ?? []),
-        'classes' => array_merge(WP_CLASSES, $custom['whitelist']['classes'] ?? []),
-        'constants' => array_merge(WP_CONSTANTS, $custom['whitelist']['constants'] ?? []),
-        'globals' => array_merge(WP_GLOBAL_VARS, $custom['whitelist']['globals'] ?? []),
-        'exclude_patterns' => $custom['whitelist']['exclude_patterns'] ?? [],
+        'functions' => array_merge(WP_FUNCTIONS, $whitelist['functions'] ?? []),
+        'classes' => array_merge(WP_CLASSES, $whitelist['classes'] ?? []),
+        'methods' => $whitelist['methods'] ?? [],
+        'globals' => array_merge(WP_GLOBAL_VARS, $whitelist['globals'] ?? []),
+        'variables' => $whitelist['variables'] ?? [],
+        'constants' => array_merge(WP_CONSTANTS, $whitelist['constants'] ?? []),
+        'exclude_patterns' => $whitelist['exclude_patterns'] ?? [],
     ];
 }
 
+//匹配到的文件不需要混淆
 function shouldExcludeFile(string $fileName, array $patterns): bool {
     foreach ($patterns as $pattern) {
         if (fnmatch($pattern, basename($fileName))) return true;
@@ -47,11 +67,18 @@ function shouldExcludeFile(string $fileName, array $patterns): bool {
     return false;
 }
 
-function colorize($text, $color = 'green') {
-    $colors = ['red' => '0;31', 'green' => '0;32', 'yellow' => '1;33', 'blue' => '0;34'];
-    return "\033[" . ($colors[$color] ?? '0') . "m$text\033[0m";
+// 彩色输出函数
+function colorize(string $text, string $color): string {
+    $colors = [
+        'red' => "\033[31m",
+        'green' => "\033[32m",
+        'yellow' => "\033[33m",
+        'reset' => "\033[0m",
+    ];
+    return ($colors[$color] ?? '') . $text . $colors['reset'];
 }
 
+//主混淆类
 class WpFriendlyObfuscator extends NodeVisitorAbstract {
     private array $varMap = [], $funcMap = [], $classMap = [], $methodMap = [];
     private int $varCounter = 0, $funcCounter = 0, $classCounter = 0, $methodCounter = 0;
@@ -78,7 +105,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         // 函数参数混淆
         if ($node instanceof Node\Param && $node->var instanceof Node\Expr\Variable) {
             $name = $node->var->name;
-            if (is_string($name) && !in_array($name, $this->config['globals'], true)) {
+            if (is_string($name) && !in_array($name, $this->config['variables'], true)) {
                 if (!isset($this->varMap[$name])) {
                     $this->varMap[$name] = $this->generateName('a', $this->varCounter++);
                 }
@@ -150,10 +177,37 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         // 类方法调用混淆 - 静态方式
         if ($node instanceof Node\Expr\StaticCall && $node->name instanceof Node\Identifier) {
             $methodName = $node->name->name;
-            if (isset($this->methodMap[$methodName])) {
-                $node->name->name = $this->methodMap[$methodName];
+
+            // 跳过白名单中的方法名（如 __construct, get_instance 等）
+            if (in_array($methodName, $this->config['methods'] ?? [], true)) {
+                return;
             }
+
+            // 生成并映射混淆名
+            if (!isset($this->methodMap[$methodName])) {
+                $this->methodMap[$methodName] = $this->generateName('m', $this->methodCounter++);
+            }
+
+            $node->name->name = $this->methodMap[$methodName];
         }
+
+        // 类方法调用混淆 - 非静态方式（对象调用）
+        if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
+            $methodName = $node->name->name;
+
+            // 跳过白名单中的方法名（如 __construct, get_instance 等）
+            if (in_array($methodName, $this->config['methods'] ?? [], true)) {
+                return;
+            }
+
+            // 映射混淆名
+            if (!isset($this->methodMap[$methodName])) {
+                $this->methodMap[$methodName] = $this->generateName('m', $this->methodCounter++);
+            }
+
+            $node->name->name = $this->methodMap[$methodName];
+        }
+
     }
 
     public function saveMapToFile(string $filePath): void {
@@ -167,7 +221,6 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
         file_put_contents($filePath, json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 }
-
 
 function obfuscateFile(string $filePath, WpFriendlyObfuscator $obfuscator): ?string {
     $code = file_get_contents($filePath);
@@ -186,7 +239,7 @@ function obfuscateFile(string $filePath, WpFriendlyObfuscator $obfuscator): ?str
     }
 }
 
-
+// 主混淆函数（第一阶段）
 function obfuscateDirectory(string $inputDir, string $outputDir, array $config): void {
     $inputDir = rtrim(realpath($inputDir), DIRECTORY_SEPARATOR);
     $outputDir = rtrim($outputDir, DIRECTORY_SEPARATOR);
@@ -218,13 +271,86 @@ function obfuscateDirectory(string $inputDir, string $outputDir, array $config):
             $obfuscatedCode = obfuscateFile($inputPath, $obfuscator);
             if ($obfuscatedCode !== null) {
                 file_put_contents($outputPath, $obfuscatedCode);
-                echo colorize("✔ Obfuscated: $relativePath", 'green') . "\n";
+                //echo colorize("✔ Obfuscated: $relativePath", 'green') . "\n";
+                echo colorize("[Phase1 Done] Functions and methods obfuscated.\n", 'green');
             }
         }
     }
 
     // ✅ 所有处理完后统一保存映射文件
     $obfuscator->saveMapToFile($outputDir . DIRECTORY_SEPARATOR . 'obfuscation-map.json');
+}
+
+// 第二阶段：更新字符串中的回调名
+//替换钩子回谳函数字符串类
+class CallbackNameUpdater extends NodeVisitorAbstract {
+    private $funcMap, $methodMap;
+    public function __construct(array $funcMap, array $methodMap) {
+        $this->funcMap = $funcMap;
+        $this->methodMap = $methodMap;
+    }
+    public function enterNode(Node $node) {
+        // add_action / add_filter(string callback)
+        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name) {
+            $fname = $node->name->toString();
+            if (in_array($fname, ['add_action','add_filter'], true) && isset($node->args[1])) {
+                $arg = $node->args[1]->value;
+                if ($arg instanceof Node\Scalar\String_) {
+                    $orig = $arg->value;
+                    if (isset($this->funcMap[$orig])) {
+                        $arg->value = $this->funcMap[$orig];
+                    }
+                }
+                if ($arg instanceof Node\Expr\Array_ && count($arg->items) >= 2) {
+                    $item = $arg->items[1];
+                    if ($item->value instanceof Node\Scalar\String_) {
+                        $orig = $item->value->value;
+                        if (isset($this->methodMap[$orig])) {
+                            $item->value->value = $this->methodMap[$orig];
+                        }
+                    }
+                }
+            }
+        }
+        // register_rest_route callback
+        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name
+            && $node->name->toString() === 'register_rest_route' && isset($node->args[2])) {
+            $arg = $node->args[2]->value;
+            if ($arg instanceof Node\Expr\Array_) {
+                foreach ($arg->items as $item) {
+                    if ($item->key instanceof Node\Scalar\String_
+                        && $item->key->value === 'callback'
+                        && $item->value instanceof Node\Scalar\String_) {
+                        $orig = $item->value->value;
+                        if (isset($this->funcMap[$orig])) {
+                            $item->value->value = $this->funcMap[$orig];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 遍历目标目录并替换回调名
+function obfuscateDirectoryPhase2(string $dir, NodeTraverser $traverser): void {
+    $parser = (new ParserFactory)->createForNewestSupportedVersion();
+    $printer = new PrettyPrinter\Standard();
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+    foreach ($files as $file) {
+        if ($file->isFile() && $file->getExtension() === 'php') {
+            $code = file_get_contents($file->getRealPath());
+            try {
+                $ast = $parser->parse($code);
+                $ast = $traverser->traverse($ast);
+                $new = $printer->prettyPrintFile($ast);
+                file_put_contents($file->getRealPath(), $new);
+                echo colorize("[Phase2 OK] ".$file->getFilename()."\n", 'green');
+            } catch (Error $e) {
+                echo colorize("[Phase2 Error] {$file->getFilename()}: ".$e->getMessage()."\n", 'red');
+            }
+        }
+    }
 }
 
 // CLI 启动
@@ -237,5 +363,17 @@ if ($argc < 3) {
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
 $config = loadConfig(__DIR__ . '/config.json');
+
 //echo var_export($config,true);
+
+// 执行第一阶段：混淆所有PHP文件中的函数、变量、方法、类名等。
 obfuscateDirectory($source, $target, $config);
+
+// 第二阶段：根据映射修改回调名
+$map = json_decode(file_get_contents($target.'/obfuscation-map.json'), true);
+$traverser = new NodeTraverser();
+$traverser->addVisitor(new CallbackNameUpdater($map['functions'], $map['methods']));
+obfuscateDirectoryPhase2($target, $traverser);
+
+echo colorize("\n[Done] All stages completed.\n", 'yellow');
+

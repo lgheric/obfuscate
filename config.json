@@ -1,10 +1,11 @@
 {
   "whitelist": {
+
     "functions": [
       "add_action",
       "add_filter",
-      "apply_filters",
       "do_action",
+      "apply_filters",
       "register_activation_hook",
       "register_deactivation_hook",
       "__",
@@ -12,32 +13,51 @@
       "esc_html",
       "esc_attr",
       "wp_nonce_field",
-      "wp_verify_nonce"
+      "wp_verify_nonce",
+      "register_settings",
+      "render_settings_page",
+      "render_settings_page2"
+
     ],
+
     "classes": [
       "WP_Query",
-      "WP_Widget",
-      "WP_REST_Controller",
+      "WP_REST_Request",
       "WP_Error",
+      "WP_User",
+
+      "Settings",
+
+      "AdminColumns",
+      "Display",
+      "Tracker",
+
       "Cleaner",
       "Core",
       "Export",
       "RestApi",
       "Sort",
+
       "ProLoader",
-      "PurchaseCodeManager"
+      "PurchaseCodeManager",
+      "Pro_Plugin_Updater",
+      "HooksRegistrar"
     ],
-    "constants": [
-      "ABSPATH",
-      "PLUGIN_VERSION",
-      "WPINC"
+
+    "methods": [
+      "__construct",
+      "__get",
+      "__set",
+      "__call",
+      "__invoke",
+      "__clone",
+      "__wakeup",
+      "__callStatic",
+
+      "get_instance"
+
     ],
-    "variables": [
-      "$wpdb",
-      "$post",
-      "$user_ID",
-      "$current_user"
-    ],
+
     "globals":[
 
       "GLOBALS",
@@ -50,7 +70,8 @@
       "_REQUEST",
       "_ENV",
 
-
+      "wpdb",
+      "post",
       "post_type",
       "query",
       "columns",
@@ -64,6 +85,30 @@
 
 
       "this"
+    ],
+
+    "variables": [
+      "$wpdb",
+      "$post",
+      "$user_ID",
+      "$current_user"
+    ],
+
+    "constants": [
+      "ABSPATH",
+      "PLUGIN_VERSION",
+      "WPINC"
+    ],
+
+    "exclude_patterns":[
+      "*/vendor/*",
+      "*/templates/*",
+      "*/config.php",
+      "class-*",
+      "namespace RobertCSouth\\ConciseViewsCounterPro\\*",
+      "function __*",
+      "const ",
+      "define("
     ]
 
   }
