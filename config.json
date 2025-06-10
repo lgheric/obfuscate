@@ -54,7 +54,8 @@
       "__wakeup",
       "__callStatic",
 
-      "get_instance"
+      "get_instance",
+      "get_error_message"
 
     ],
 

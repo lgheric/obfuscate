@@ -368,7 +368,7 @@ class CallbackNameUpdater extends NodeVisitorAbstract {
                 if (isset($this->methodMap[$orig])) {
                     $second->value = $this->methodMap[$orig];
                     // 如果想调试，可以打开下面这行
-                     echo "Callback method string updated: $orig -> {$this->methodMap[$orig]}\n";
+                    // echo "Callback method string updated: $orig -> {$this->methodMap[$orig]}\n";
                 }
             }
         }
