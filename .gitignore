@@ -9,3 +9,4 @@ composer.lock
 src/
 out/
 /out/
+debug.log

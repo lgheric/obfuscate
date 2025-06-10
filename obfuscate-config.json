@@ -38,7 +38,7 @@
       "RestApi",
       "Sort",
 
-      "ProLoader",
+      "Loader",
       "PCodeManager",
       "Pro_Plugin_Updater",
       "HooksRegistrar"
@@ -54,9 +54,15 @@
       "__wakeup",
       "__callStatic",
 
-      "get_instance",
-      "get_error_message"
+      "get_error_message",
+      "get",
+      "set",
+      "query",
+      "prepare",
+      "is_main_query",
+      "get_col",
 
+      "get_instance"
     ],
 
     "globals":[

@@ -79,7 +79,7 @@ function colorize(string $text, string $color): string {
     return ($colors[$color] ?? '') . $text . $colors['reset'];
 }
 
-//主混淆类
+//主混淆类 #########################################################################################
 class WpFriendlyObfuscator extends NodeVisitorAbstract {
     private array $varMap = [], $funcMap = [], $classMap = [], $methodMap = [];
     private int $varCounter = 0, $funcCounter = 0, $classCounter = 0, $methodCounter = 0;
@@ -96,22 +96,35 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
     public function enterNode(Node $node) {
         // 变量名混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Expr\Variable && is_string($node->name)) {
+            if ($node->hasAttribute('already_obfuscated')) return;// 已经处理过，跳过
             if (in_array($node->name, $this->config['globals'], true)) return;
+
+//            if (!isset($this->varMap[$node->name])) {
+//                $this->varMap[$node->name] = $this->generateName('v', $this->varCounter++);
+//            }
             if (!isset($this->varMap[$node->name])) {
                 $this->varMap[$node->name] = $this->generateName('v', $this->varCounter++);
+            } else {
+                // 调试检查：如果变量已经混淆过，但又被处理，则记录警告
+                if ($this->varMap[$node->name] !== $node->name) {
+                    file_put_contents("debug.log","Variable \${$node->name} was already obfuscated to {$this->varMap[$node->name]}".PHP_EOL,FILE_APPEND);
+                }
             }
+
             $node->name = $this->varMap[$node->name];
+            $node->setAttribute('already_obfuscated', true);//标记已处理
         }
 
         // 函数参数混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Param && $node->var instanceof Node\Expr\Variable) {
             $name = $node->var->name;
-            if (is_string($name) && !in_array($name, $this->config['variables'], true)) {
-                if (!isset($this->varMap[$name])) {
-                    $this->varMap[$name] = $this->generateName('a', $this->varCounter++);
-                }
-                $node->var->name = $this->varMap[$name];
+            if (is_string($name) && !in_array($name, $this->config['variables'], true)) return;
+
+            if (!isset($this->varMap[$name])) {
+                $this->varMap[$name] = $this->generateName('a', $this->varCounter++);
             }
+
+            $node->var->name = $this->varMap[$name];
         }
 
         // 函数定义混淆 -----------------------------------------------------------------
@@ -145,16 +158,16 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             // 处理拼接字符串
             if ($arg instanceof Node\Expr\BinaryOp\Concat && $arg->right instanceof Node\Scalar\String_) {
                 $funcName = ltrim($arg->right->value, '\\');
-                if (isset($this->functionMap[$funcName])) {
-                    $arg->right->value = '\\' . $this->functionMap[$funcName];
+                if (isset($this->funcMap[$funcName])) {
+                    $arg->right->value = '\\' . $this->funcMap[$funcName];
                 }
             }
 
             // 处理普通字符串
             if ($arg instanceof Node\Scalar\String_) {
                 $funcName = ltrim($arg->value, '\\');
-                if (isset($this->functionMap[$funcName])) {
-                    $arg->value = $this->functionMap[$funcName];
+                if (isset($this->funcMap[$funcName])) {
+                    $arg->value = $this->funcMap[$funcName];
                 }
             }
         }
@@ -193,13 +206,6 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类方法调用混淆 - 对象方式
-        if ($node instanceof Node\Expr\MethodCall && $node->name instanceof Node\Identifier) {
-            $methodName = $node->name->name;
-            if (isset($this->methodMap[$methodName])) {
-                $node->name->name = $this->methodMap[$methodName];
-            }
-        }
 
         // 类方法调用混淆 - 静态方式
         if ($node instanceof Node\Expr\StaticCall && $node->name instanceof Node\Identifier) {
@@ -310,7 +316,7 @@ function obfuscateDirectory(string $inputDir, string $outputDir, array $config):
 }
 
 // 第二阶段：更新字符串中的回调名
-//替换钩子回谳函数字符串类
+//替换钩子回谳函数字符串类 #########################################################################################
 class CallbackNameUpdater extends NodeVisitorAbstract {
     private $funcMap, $methodMap;
     public function __construct(array $funcMap, array $methodMap) {
@@ -404,12 +410,12 @@ if ($argc < 3) {
     exit(1);
 }
 
-
 $source = rtrim($argv[1], '/\\');
 $target = rtrim($argv[2], '/\\');
-$config = loadConfig(__DIR__ . '/config.json');
-
-//echo var_export($config,true);
+try {
+    $config = loadConfig(__DIR__ . '/obfuscate-config.json');
+} catch (Exception $e) {
+}
 
 // 执行第一阶段：混淆所有PHP文件中的函数、变量、方法、类名等。
 obfuscateDirectory($source, $target, $config);
