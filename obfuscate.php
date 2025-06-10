@@ -67,6 +67,7 @@ function shouldExcludeFile(string $fileName, array $patterns): bool {
     return false;
 }
 
+
 // 彩色输出函数
 function colorize(string $text, string $color): string {
     $colors = [
@@ -93,7 +94,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
     }
 
     public function enterNode(Node $node) {
-        // 变量名混淆
+        // 变量名混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Expr\Variable && is_string($node->name)) {
             if (in_array($node->name, $this->config['globals'], true)) return;
             if (!isset($this->varMap[$node->name])) {
@@ -102,7 +103,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             $node->name = $this->varMap[$node->name];
         }
 
-        // 函数参数混淆
+        // 函数参数混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Param && $node->var instanceof Node\Expr\Variable) {
             $name = $node->var->name;
             if (is_string($name) && !in_array($name, $this->config['variables'], true)) {
@@ -113,7 +114,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 函数定义混淆
+        // 函数定义混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Stmt\Function_) {
             $name = $node->name->name;
             if (!in_array($name, $this->config['functions'], true)) {
@@ -124,7 +125,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 函数调用混淆
+        // 函数调用混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name) {
             $name = $node->name->toString();
             if (isset($this->funcMap[$name])) {
@@ -132,7 +133,33 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类名混淆
+        //专门处理 function_exists('xxx') 这类特殊字符串引用场景。
+        if (
+            $node instanceof Node\Expr\FuncCall &&
+            $node->name instanceof Node\Name &&
+            strtolower((string)$node->name) === 'function_exists' &&
+            isset($node->args[0])
+        ) {
+            $arg = $node->args[0]->value;
+
+            // 处理拼接字符串
+            if ($arg instanceof Node\Expr\BinaryOp\Concat && $arg->right instanceof Node\Scalar\String_) {
+                $funcName = ltrim($arg->right->value, '\\');
+                if (isset($this->functionMap[$funcName])) {
+                    $arg->right->value = '\\' . $this->functionMap[$funcName];
+                }
+            }
+
+            // 处理普通字符串
+            if ($arg instanceof Node\Scalar\String_) {
+                $funcName = ltrim($arg->value, '\\');
+                if (isset($this->functionMap[$funcName])) {
+                    $arg->value = $this->functionMap[$funcName];
+                }
+            }
+        }
+
+        // 类名混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Stmt\Class_ && $node->name !== null) {
             $name = $node->name->name;
             // ✅ 添加日志输出
@@ -147,7 +174,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类实例化混淆
+        // 类实例化混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Expr\New_ && $node->class instanceof Node\Name) {
             $name = $node->class->toString();
             if (isset($this->classMap[$name])) {
@@ -155,7 +182,7 @@ class WpFriendlyObfuscator extends NodeVisitorAbstract {
             }
         }
 
-        // 类方法定义混淆
+        // 类方法定义混淆 -----------------------------------------------------------------
         if ($node instanceof Node\Stmt\ClassMethod) {
             $methodName = $node->name->name;
             if (!in_array($methodName, $this->config['methods'] ?? [], true)) {
@@ -254,6 +281,7 @@ function obfuscateDirectory(string $inputDir, string $outputDir, array $config):
             $file->getExtension() === 'php' &&
             !shouldExcludeFile($file->getFilename(), $config['exclude_patterns'])
         ) {
+
             $inputPath = $file->getRealPath();
 
             // 计算相对路径
@@ -329,6 +357,23 @@ class CallbackNameUpdater extends NodeVisitorAbstract {
                 }
             }
         }
+
+        if ($node instanceof Node\Expr\Array_ && count($node->items) === 2) {
+            $first = $node->items[0]->value;
+            $second = $node->items[1]->value;
+
+            // 形如 [$this, 'method_name']
+            if ($first instanceof Node\Expr\Variable && $first->name === 'this' && $second instanceof Node\Scalar\String_) {
+                $orig = $second->value;
+                if (isset($this->methodMap[$orig])) {
+                    $second->value = $this->methodMap[$orig];
+                    // 如果想调试，可以打开下面这行
+                     echo "Callback method string updated: $orig -> {$this->methodMap[$orig]}\n";
+                }
+            }
+        }
+
+
     }
 }
 

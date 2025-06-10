@@ -39,7 +39,7 @@
       "Sort",
 
       "ProLoader",
-      "PurchaseCodeManager",
+      "PCodeManager",
       "Pro_Plugin_Updater",
       "HooksRegistrar"
     ],
@@ -101,14 +101,8 @@
     ],
 
     "exclude_patterns":[
-      "*/vendor/*",
-      "*/templates/*",
-      "*/config.php",
-      "class-*",
-      "namespace RobertCSouth\\ConciseViewsCounterPro\\*",
-      "function __*",
-      "const ",
-      "define("
+      "autoload.php",
+      "helpers.php"
     ]
 
   }
